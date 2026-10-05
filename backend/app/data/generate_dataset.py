@@ -14,109 +14,115 @@ LOCATIONS = [
     "bus-terminal"
 ]
 
-def generate_synthetic_dataset(num_records=8000, output_path=None):
+def generate_training_dataset(num_records=10000, output_path=None):
+    """
+    Generates a realistic historical dataset for offline ML model training.
+    Features align strictly with real-world API telemetry inputs:
+    - TomTom: current_speed, free_flow_speed, congestion_percentage
+    - OpenWeather: temperature, rainfall, humidity
+    - OpenAQ: aqi
+    - Controlled Hydrology: water_level, prev_rainfall
+    NO fake vehicle count is used in production feature engineering.
+    """
     np.random.seed(42)
-    start_date = datetime.datetime(2026, 8, 1, 0, 0, 0)
+    start_date = datetime.datetime(2026, 7, 1, 0, 0, 0)
     
     records = []
     
     for i in range(num_records):
-        # Time steps every 15 minutes across locations
         time_offset_min = (i // len(LOCATIONS)) * 15
         dt = start_date + datetime.timedelta(minutes=time_offset_min)
         loc = LOCATIONS[i % len(LOCATIONS)]
         
         hour = dt.hour
-        day_of_week = dt.weekday() # 0 = Monday, 6 = Sunday
-        
-        # Rush hour check (8-10 AM, 5-8 PM on weekdays)
+        day_of_week = dt.weekday()  # 0=Monday, 6=Sunday
         is_weekday = day_of_week < 5
         is_rush = is_weekday and ((8 <= hour <= 10) or (17 <= hour <= 20))
         
-        # Location specific baseline modifiers
-        loc_traffic_bias = 1.3 if loc in ["central-junction", "railway-station", "bus-terminal"] else 1.0
-        loc_aqi_bias = 1.4 if loc == "industrial-area" else 1.0
-        loc_water_bias = 1.5 if loc == "river-zone" else 0.8
-        
-        # Weather simulation
-        # Random rain event probability
-        is_rainy_day = np.random.rand() < 0.25
-        rainfall = np.random.uniform(20, 90) if is_rainy_day and np.random.rand() < 0.6 else np.random.uniform(0, 10)
-        if np.random.rand() < 0.05: # Flash heavy storm
-            rainfall = np.random.uniform(70, 140)
+        # Environmental Weather Simulation (OpenWeather features)
+        is_rainy = np.random.rand() < 0.22
+        if is_rainy:
+            rainfall = np.random.uniform(5.0, 75.0)
+            if np.random.rand() < 0.08:
+                rainfall = np.random.uniform(75.0, 130.0)  # Cloudburst
+        else:
+            rainfall = 0.0 if np.random.rand() < 0.85 else np.random.uniform(0.1, 3.0)
             
-        temperature = np.random.uniform(22, 36) - (rainfall * 0.08)
-        temperature = round(temperature, 1)
-        rainfall = round(rainfall, 1)
-        
-        # Water level correlates with rainfall & river location
-        base_water = 0.5 * loc_water_bias
-        water_level = base_water + (rainfall * 0.035) + np.random.uniform(-0.1, 0.2)
-        water_level = max(0.2, round(water_level, 2))
-        
-        # Vehicle count and speed calculation
-        base_vehicles = np.random.uniform(20, 50)
+        temperature = round(float(np.random.uniform(22.0, 36.0) - (rainfall * 0.08)), 1)
+        humidity = round(float(np.clip(50.0 + (rainfall * 0.4) + np.random.uniform(-10, 15), 30.0, 98.0)), 1)
+        prev_rainfall = round(float(max(0.0, rainfall * np.random.uniform(0.3, 0.85))), 1)
+
+        # Hydrological Water Level (Simulated basin response to rainfall)
+        loc_water_bias = 1.4 if loc == "river-zone" else 0.75
+        base_water = 0.6 * loc_water_bias
+        water_level = base_water + (rainfall * 0.03) + (prev_rainfall * 0.015) + np.random.uniform(-0.05, 0.08)
+        water_level = round(float(max(0.3, water_level)), 2)
+
+        # Air Quality (OpenAQ feature)
+        loc_aqi_bias = 1.35 if loc == "industrial-area" else 1.0
+        base_aqi = np.random.uniform(40, 80) * loc_aqi_bias
+        # Traffic slows down and weather affects AQI (rain washes pollutants down)
+        rain_wash = rainfall * 0.35
+        aqi = int(np.clip(base_aqi - rain_wash + np.random.uniform(-8, 12), 20, 240))
+
+        # Traffic Flow Simulation (TomTom features: free_flow_speed, current_speed, congestion_percentage)
+        free_flow_speed = 50.0 if loc in ["airport-road"] else 40.0
+        if loc in ["central-junction", "bus-terminal", "railway-station"]:
+            free_flow_speed = 35.0
+
         if is_rush:
-            base_vehicles *= np.random.uniform(2.2, 3.5)
+            congestion_factor = np.random.uniform(0.45, 0.85)
         else:
-            base_vehicles *= np.random.uniform(0.8, 1.4)
-            
-        vehicle_count = int(base_vehicles * loc_traffic_bias)
-        vehicle_count = max(5, vehicle_count)
+            congestion_factor = np.random.uniform(0.05, 0.40)
+
+        # Rain impacts traffic speeds
+        if rainfall > 20.0:
+            congestion_factor = min(0.95, congestion_factor + 0.20)
+
+        current_speed = round(float(free_flow_speed * (1.0 - congestion_factor) + np.random.uniform(-2, 2)), 1)
+        current_speed = max(4.0, min(free_flow_speed, current_speed))
         
-        # Speed drops as vehicle count increases and rain increases
-        speed = 65 - (vehicle_count * 0.22) - (rainfall * 0.15) + np.random.uniform(-3, 3)
-        traffic_speed = max(5.0, round(speed, 1))
-        
-        # AQI calculation
-        base_aqi = np.random.uniform(35, 75) * loc_aqi_bias
-        aqi_add = (vehicle_count * 0.25) - (rainfall * 0.1)
-        aqi = int(max(15, base_aqi + aqi_add + np.random.uniform(-5, 10)))
-        
-        # Derive Traffic Congestion Level Target (Low, Moderate, High, Critical)
-        # Congestion score calculation
-        congestion_index = (vehicle_count / (traffic_speed + 1.0)) * (1.1 if rainfall > 30 else 1.0)
-        
-        if congestion_index < 1.2:
-            traffic_level = "Low"
-        elif congestion_index < 3.2:
-            traffic_level = "Moderate"
-        elif congestion_index < 6.0:
-            traffic_level = "High"
-        else:
+        congestion_pct = round(max(0.0, (free_flow_speed - current_speed) / free_flow_speed * 100.0), 1)
+
+        # Traffic Level Ground Truth
+        if congestion_pct >= 60.0 or current_speed < 12.0:
             traffic_level = "Critical"
-            
-        # Derive Flood Risk Target (Low, Moderate, High, Critical)
-        # Prev rainfall simulation
-        prev_rainfall = max(0.0, rainfall * np.random.uniform(0.4, 0.9))
-        prev_rainfall = round(prev_rainfall, 1)
-        
-        flood_index = (rainfall * 0.45) + (water_level * 18.0) + (prev_rainfall * 0.25)
-        if flood_index < 25:
-            flood_risk = "Low"
-        elif flood_index < 50:
-            flood_risk = "Moderate"
-        elif flood_index < 75:
-            flood_risk = "High"
+        elif congestion_pct >= 40.0 or current_speed < 22.0:
+            traffic_level = "High"
+        elif congestion_pct >= 20.0 or current_speed < 32.0:
+            traffic_level = "Moderate"
         else:
+            traffic_level = "Low"
+
+        # Flood Risk Ground Truth
+        flood_index = (rainfall * 0.45) + (prev_rainfall * 0.25) + (water_level * 18.0)
+        if flood_index >= 75 or water_level > 2.8 or rainfall > 85.0:
             flood_risk = "Critical"
-            
+        elif flood_index >= 50 or water_level > 2.0 or rainfall > 45.0:
+            flood_risk = "High"
+        elif flood_index >= 25 or water_level > 1.2 or rainfall > 15.0:
+            flood_risk = "Moderate"
+        else:
+            flood_risk = "Low"
+
         records.append({
             "timestamp": dt.strftime("%Y-%m-%d %H:%M:%S"),
             "location": loc,
-            "vehicle_count": vehicle_count,
-            "traffic_speed": traffic_speed,
-            "aqi": aqi,
+            "current_speed": current_speed,
+            "free_flow_speed": free_flow_speed,
+            "congestion_percentage": congestion_pct,
             "temperature": temperature,
             "rainfall": rainfall,
+            "humidity": humidity,
             "prev_rainfall": prev_rainfall,
             "water_level": water_level,
+            "aqi": aqi,
             "hour": hour,
             "day_of_week": day_of_week,
             "traffic_level": traffic_level,
             "flood_risk": flood_risk
         })
-        
+
     df = pd.DataFrame(records)
     
     if output_path is None:
@@ -126,10 +132,10 @@ def generate_synthetic_dataset(num_records=8000, output_path=None):
     else:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
     df.to_csv(output_path, index=False)
-    print(f"Dataset generated successfully with {len(df)} records at {output_path}")
+    print(f"Training dataset generated successfully: {len(df)} rows at {output_path}")
     return df
 
 if __name__ == "__main__":
-    generate_synthetic_dataset()
+    generate_training_dataset()

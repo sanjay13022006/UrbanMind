@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Header from '../components/Header';
 import ScenarioSelector from '../components/ScenarioSelector';
+import DataSourcesPanel from '../components/DataSourcesPanel';
 import KPICards from '../components/KPICards';
 import CityMap from '../components/CityMap';
 import Predictions from '../components/Predictions';
@@ -15,7 +16,9 @@ import {
   getPredictions,
   getAlerts,
   getAnalytics,
-  triggerSimulation
+  getDataSourcesStatus,
+  triggerSimulation,
+  switchToLiveMode
 } from '../services/api';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 
@@ -25,8 +28,10 @@ export default function Dashboard() {
   const [predictions, setPredictions] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [analytics, setAnalytics] = useState([]);
-  
+  const [dataSources, setDataSources] = useState([]);
+
   const [currentScenario, setCurrentScenario] = useState('normal');
+  const [isLive, setIsLive] = useState(true);
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [loading, setLoading] = useState(false);
   const [isError, setIsError] = useState(false);
@@ -34,12 +39,13 @@ export default function Dashboard() {
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
-      const [statusRes, locsRes, predsRes, alertsRes, analyticsRes] = await Promise.all([
+      const [statusRes, locsRes, predsRes, alertsRes, analyticsRes, sourcesRes] = await Promise.all([
         getCityStatus(),
         getLocations(),
         getPredictions(),
         getAlerts(),
-        getAnalytics()
+        getAnalytics(),
+        getDataSourcesStatus()
       ]);
 
       setCityStatus(statusRes);
@@ -47,36 +53,65 @@ export default function Dashboard() {
       setPredictions(predsRes);
       setAlerts(alertsRes);
       setAnalytics(analyticsRes);
-      if (statusRes?.current_scenario) {
-        setCurrentScenario(statusRes.current_scenario);
+      setDataSources(sourcesRes);
+
+      if (statusRes) {
+        setIsLive(statusRes.is_live ?? true);
+        if (statusRes.demo_scenario) {
+          setCurrentScenario(statusRes.demo_scenario);
+        }
       }
       setIsError(false);
     } catch (err) {
-      console.error('Error connecting to Urban Mind backend:', err);
+      console.error('Error connecting to UrbanTwin AI backend:', err);
       setIsError(true);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Initial load and 5-second auto refresh interval
+  // Initial load and 6-second auto refresh interval (reads cached observations without spamming APIs)
   useEffect(() => {
     fetchDashboardData();
     const interval = setInterval(() => {
       fetchDashboardData();
-    }, 5000);
+    }, 6000);
     return () => clearInterval(interval);
   }, [fetchDashboardData]);
 
   const handleSelectScenario = async (scenarioId) => {
-    setCurrentScenario(scenarioId);
-    handleRunSimulation(scenarioId);
+    try {
+      setLoading(true);
+      setCurrentScenario(scenarioId);
+      setIsLive(false);
+      await triggerSimulation('DEMO', scenarioId);
+      await fetchDashboardData();
+    } catch (err) {
+      console.error('Error setting demo scenario:', err);
+      setIsError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSwitchToLive = async () => {
+    try {
+      setLoading(true);
+      await switchToLiveMode();
+      setIsLive(true);
+      await fetchDashboardData();
+    } catch (err) {
+      console.error('Error switching to live mode:', err);
+      setIsError(true);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRunSimulation = async (scenarioId = currentScenario) => {
     try {
       setLoading(true);
-      await triggerSimulation(scenarioId);
+      await triggerSimulation('DEMO', scenarioId);
       await fetchDashboardData();
     } catch (err) {
       console.error('Error running simulation:', err);
@@ -112,7 +147,7 @@ export default function Dashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', color: '#B91C1C' }}>
             <AlertCircle style={{ width: '20px', height: '20px' }} />
             <div>
-              <strong style={{ fontSize: '0.9rem' }}>Unable to connect to city data service.</strong>
+              <strong style={{ fontSize: '0.9rem' }}>Unable to connect to UrbanTwin AI service.</strong>
               <div style={{ fontSize: '0.8rem', color: '#7F1D1D' }}>
                 Please ensure the FastAPI backend is running on http://127.0.0.1:8000.
               </div>
@@ -130,7 +165,8 @@ export default function Dashboard() {
               fontSize: '0.8rem',
               display: 'flex',
               alignItems: 'center',
-              gap: '0.375rem'
+              gap: '0.375rem',
+              cursor: 'pointer'
             }}
           >
             <RefreshCw style={{ width: '14px', height: '14px' }} /> Retry Connection
@@ -138,16 +174,27 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Scenario & Operation Mode Selector */}
       <ScenarioSelector
+        isLive={isLive}
         currentScenario={currentScenario}
         onSelectScenario={handleSelectScenario}
         onRunSimulation={handleRunSimulation}
+        onSwitchToLive={handleSwitchToLive}
         loading={loading}
       />
 
+      {/* External Data Sources Status Panel */}
+      <DataSourcesPanel
+        sources={dataSources}
+        isLive={isLive}
+        onRefreshSources={fetchDashboardData}
+      />
+
+      {/* KPI Overview Cards */}
       <KPICards statusData={cityStatus} />
 
-      {/* Main Grid Layout */}
+      {/* Main Spatial & AI Predictions Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '1.25rem', marginBottom: '1.25rem' }}>
         {/* Left Column: Interactive Map (7 Cols) */}
         <div style={{ gridColumn: 'span 7' }}>
@@ -158,8 +205,8 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* Right Column: AI Predictions & Active Alerts (5 Cols) */}
-        <div style={{ gridColumn: 'span 5', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        {/* Right Column: AI Predictions (5 Cols) */}
+        <div style={{ gridColumn: 'span 5', display: 'flex', flexDirection: 'column' }}>
           <div style={{ flex: 1 }}>
             <Predictions
               predictions={predictions}
@@ -169,15 +216,15 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Active Alerts Panel & Analytics */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '1.25rem' }}>
-        <div style={{ gridColumn: 'span 12' }}>
-          <Alerts alerts={alerts} />
-        </div>
+      {/* Active Threshold Alerts Panel */}
+      <div style={{ marginBottom: '1.25rem' }}>
+        <Alerts alerts={alerts} />
       </div>
 
+      {/* Historical Telemetry Analytics */}
       <Analytics analyticsData={analytics} />
 
+      {/* Future Scope & Honest Architectural Notes */}
       <FutureScope />
 
       {/* Location Details Inspector Modal */}

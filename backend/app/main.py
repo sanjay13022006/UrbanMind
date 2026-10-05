@@ -3,24 +3,35 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.models.database import init_db
-from app.services.sensor_service import sensor_service
+from app.services.data_ingestion_service import data_ingestion_service
 from app.api.routes import router as api_router
+from app import config
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup initialization
-    print("Starting Urban Mind Backend Server...")
+    print("=" * 60)
+    print("Starting UrbanTwin AI Smart City Digital Twin Backend...")
+    print(f"Configured City: {config.CITY_NAME} ({config.LATITUDE}, {config.LONGITUDE})")
     init_db()
-    # Seed initial sensor data tick if needed
-    sensor_service.generate_sensor_tick("normal")
-    print("Urban Mind Database & Initial Telemetry Ready.")
+    
+    print("Ingesting initial real-time telemetry from external APIs...")
+    try:
+        data_ingestion_service.ingest_data(force_refresh=True)
+        sources = data_ingestion_service.get_data_sources_status()
+        for s in sources:
+            print(f"  • {s['name']}: {s.get('status', 'connected').upper()} [{s.get('coverage', '')}]")
+    except Exception as e:
+        print(f"Warning during initial data ingestion: {e}")
+
+    print("UrbanTwin AI Database & Real API Telemetry Online.")
+    print("=" * 60)
     yield
-    print("Shutting down Urban Mind Backend Server.")
+    print("Shutting down UrbanTwin AI Backend Server.")
 
 app = FastAPI(
-    title="Urban Mind Backend API",
-    description="AI-Powered Smart City Digital Twin REST API Service",
-    version="1.0.0",
+    title="UrbanTwin AI Backend API",
+    description="Real API-Integrated Smart City Digital Twin REST API Service",
+    version="2.0.0",
     lifespan=lifespan
 )
 
@@ -38,9 +49,11 @@ app.include_router(api_router, prefix="/api")
 @app.get("/")
 def root():
     return {
-        "title": "Urban Mind API",
+        "title": "UrbanTwin AI API",
+        "city": config.CITY_NAME,
+        "mode": data_ingestion_service.app_mode,
         "status": "Online",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "docs_url": "/docs"
     }
 

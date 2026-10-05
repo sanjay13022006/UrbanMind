@@ -13,23 +13,27 @@ MODEL_DIR = BASE_DIR / "models"
 def train_and_save_models():
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     
-    if not DATA_PATH.exists():
-        print("Dataset not found. Generating new dataset...")
-        from app.data.generate_dataset import generate_synthetic_dataset
-        df = generate_synthetic_dataset()
-    else:
-        df = pd.read_csv(DATA_PATH)
-        
+    print("Generating updated dataset adhering strictly to real API input schemas...")
+    from app.data.generate_dataset import generate_training_dataset
+    df = generate_training_dataset(output_path=DATA_PATH)
     print(f"Loaded dataset with {len(df)} records for ML training.")
     
-    # Target label mapping
-    LABEL_ORDER = ["Low", "Moderate", "High", "Critical"]
-    
     # ----------------------------------------------------
-    # 1. TRAFFIC CONGESTION PREDICTION MODEL
+    # 1. TRAFFIC CONGESTION PREDICTION MODEL (Random Forest)
+    # Features strictly from TomTom, OpenWeather, OpenAQ, Time
     # ----------------------------------------------------
     print("\n--- Training Traffic Congestion Prediction Model (Random Forest) ---")
-    traffic_features = ["vehicle_count", "traffic_speed", "hour", "day_of_week", "aqi", "temperature", "rainfall"]
+    traffic_features = [
+        "current_speed",
+        "free_flow_speed",
+        "congestion_percentage",
+        "temperature",
+        "rainfall",
+        "humidity",
+        "aqi",
+        "hour",
+        "day_of_week"
+    ]
     X_traffic = df[traffic_features]
     y_traffic = df["traffic_level"]
     
@@ -59,10 +63,11 @@ def train_and_save_models():
     print(f"Saved Traffic Model to: {traffic_model_path}")
 
     # ----------------------------------------------------
-    # 2. FLOOD RISK PREDICTION MODEL
+    # 2. FLOOD RISK PREDICTION MODEL (Random Forest)
+    # Features from OpenWeather and Hydrological Simulation
     # ----------------------------------------------------
     print("\n--- Training Flood Risk Prediction Model (Random Forest) ---")
-    flood_features = ["rainfall", "water_level", "temperature", "prev_rainfall"]
+    flood_features = ["rainfall", "prev_rainfall", "water_level", "temperature", "humidity"]
     X_flood = df[flood_features]
     y_flood = df["flood_risk"]
     
@@ -90,7 +95,7 @@ def train_and_save_models():
         "classes": flood_rf.classes_.tolist()
     }, flood_model_path)
     print(f"Saved Flood Model to: {flood_model_path}")
-    print("\nML Training completed successfully.")
+    print("\nRandom Forest Models trained and verified successfully.")
 
 if __name__ == "__main__":
     train_and_save_models()

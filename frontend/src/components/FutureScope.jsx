@@ -1,30 +1,48 @@
 import React from 'react';
-import { Layers, ArrowRight } from 'lucide-react';
+import { Layers, ArrowRight, ShieldCheck, Info } from 'lucide-react';
 
 export default function FutureScope() {
   const steps = [
-    { title: 'Real IoT Sensor Integration', desc: 'Hardware microcontrollers & MQTT gateways' },
-    { title: 'Real-Time CCTV Analysis', desc: 'Computer vision vehicle detection & optical flow' },
-    { title: '3D Digital Twin', desc: 'Three.js / Cesium city-scale 3D mesh visualization' },
-    { title: 'Satellite Data Integration', desc: 'Copernicus & Landsat multispectral flood mapping' },
-    { title: 'Autonomous Traffic Management', desc: 'Adaptive AI traffic light signal control' },
-    { title: 'Smart Emergency Response', desc: 'Automated green corridor routing for ambulances' },
-    { title: 'City-Scale Cloud Deployment', desc: 'Kubernetes microservices on AWS/GCP' }
+    { title: 'Authorized River Gauges', desc: 'Real hydrological radar/ultrasonic sensor API integration' },
+    { title: 'Computer Vision CCTV', desc: 'Live optical vehicle detection and anomaly tracking' },
+    { title: '3D Twin Mesh', desc: 'Three.js / Cesium city-scale 3D digital twin rendering' },
+    { title: 'Satellite Earth Observation', desc: 'Copernicus & Sentinel multispectral flood mapping' },
+    { title: 'Autonomous Signal Timing', desc: 'Adaptive AI traffic light green corridor routing' },
+    { title: 'Cloud Microservices', desc: 'Kubernetes cluster deployment on AWS/GCP' }
   ];
 
   return (
     <div className="card" style={{ marginTop: '1.25rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+      {/* Honest Technical Claim Banner (Requirement 32) */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.625rem',
+          padding: '0.75rem 1rem',
+          backgroundColor: '#EFF6FF',
+          border: '1px solid #BFDBFE',
+          borderRadius: '6px',
+          marginBottom: '1rem'
+        }}
+      >
+        <Info style={{ width: '18px', height: '18px', color: '#2563EB', flexShrink: 0 }} />
+        <span style={{ fontSize: '0.8rem', color: '#1E40AF', fontWeight: 500 }}>
+          <strong>Architecture Notice:</strong> UrbanTwin AI integrates real external weather (OpenWeather), air-quality (OpenAQ), and traffic data (TomTom), while water-level data is currently simulated for the MVP.
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
         <Layers style={{ width: '18px', height: '18px', color: '#2563EB' }} />
-        <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#0F172A' }}>
+        <h3 style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0F172A', margin: 0 }}>
           Future Development & Architecture Roadmap
         </h3>
       </div>
-      <p style={{ fontSize: '0.8rem', color: '#64748B', marginBottom: '1rem' }}>
+      <p style={{ fontSize: '0.78rem', color: '#64748B', marginBottom: '1rem', margin: 0 }}>
         Next-phase extension vectors planned beyond the initial college project MVP prototype.
       </p>
 
-      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
         {steps.map((step, idx) => (
           <React.Fragment key={idx}>
             <div

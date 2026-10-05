@@ -4,194 +4,144 @@ from typing import Optional, List, Dict, Any
 import datetime
 
 from app.models.database import get_db_connection
-from app.services.sensor_service import sensor_service
+from app.services.weather_service import weather_service
+from app.services.air_quality_service import air_quality_service
+from app.services.traffic_service import traffic_service
+from app.services.water_level_service import water_level_service
 from app.services.prediction_service import prediction_service
 from app.services.risk_service import calculate_location_risk, calculate_city_overall_risk
 from app.services.alert_service import alert_service
+from app.services.data_ingestion_service import data_ingestion_service, _get_status_color
 
 router = APIRouter()
 
 class SimulationRequest(BaseModel):
-    scenario: Optional[str] = "normal"
+    mode: Optional[str] = "DEMO"          # "LIVE" or "DEMO"
+    scenario: Optional[str] = "normal"    # "normal", "rush_hour", "heavy_rain"
 
 class CustomPredictionRequest(BaseModel):
-    vehicle_count: int
-    traffic_speed: float
-    aqi: int
-    temperature: float
-    rainfall: float
-    water_level: float
+    current_speed: float = 30.0
+    free_flow_speed: float = 45.0
+    congestion_percentage: Optional[float] = None
+    aqi: int = 60
+    temperature: float = 28.0
+    rainfall: float = 0.0
+    humidity: Optional[float] = 60.0
+    water_level: float = 0.8
     prev_rainfall: Optional[float] = 0.0
-
-def _get_aqi_category(aqi: int) -> str:
-    if aqi <= 50:
-        return "Good"
-    elif aqi <= 100:
-        return "Moderate"
-    elif aqi <= 150:
-        return "Unhealthy for Sensitive Groups"
-    else:
-        return "Unhealthy"
-
-def _get_status_color(risk_label: str) -> str:
-    if risk_label in ["Low"]:
-        return "green"
-    elif risk_label in ["Moderate"]:
-        return "yellow"
-    else:
-        return "red"
-
-def _build_city_telemetry_state():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM locations")
-    locations = cursor.fetchall()
-
-    if not locations:
-        conn.close()
-        return []
-
-    telemetry = []
-
-    for loc in locations:
-        loc_id = loc["id"]
-        cursor.execute(
-            "SELECT * FROM sensor_data WHERE location_id = ? ORDER BY timestamp DESC LIMIT 1",
-            (loc_id,)
-        )
-        s = cursor.fetchone()
-
-        if not s:
-            # Trigger initial tick if database is empty
-            sensor_service.generate_sensor_tick("normal")
-            cursor.execute(
-                "SELECT * FROM sensor_data WHERE location_id = ? ORDER BY timestamp DESC LIMIT 1",
-                (loc_id,)
-            )
-            s = cursor.fetchone()
-
-        now = datetime.datetime.now()
-        hour = now.hour
-        day_of_week = now.weekday()
-
-        # ML Predictions
-        t_pred, t_conf = prediction_service.predict_traffic(
-            vehicle_count=s["vehicle_count"],
-            traffic_speed=s["traffic_speed"],
-            hour=hour,
-            day_of_week=day_of_week,
-            aqi=s["aqi"],
-            temperature=s["temperature"],
-            rainfall=s["rainfall"]
-        )
-
-        f_pred, f_conf = prediction_service.predict_flood(
-            rainfall=s["rainfall"],
-            water_level=s["water_level"],
-            temperature=s["temperature"],
-            prev_rainfall=0.0
-        )
-
-        risk_score, risk_label = calculate_location_risk(
-            traffic_pred=t_pred,
-            flood_pred=f_pred,
-            aqi=s["aqi"],
-            water_level=s["water_level"],
-            rainfall=s["rainfall"]
-        )
-
-        telemetry.append({
-            "location_id": loc_id,
-            "location_name": loc["name"],
-            "lat": loc["lat"],
-            "lng": loc["lng"],
-            "zone_type": loc["zone_type"],
-            "description": loc["description"],
-            "vehicle_count": s["vehicle_count"],
-            "traffic_speed": s["traffic_speed"],
-            "traffic_level": s["traffic_level"],
-            "aqi": s["aqi"],
-            "aqi_category": _get_aqi_category(s["aqi"]),
-            "temperature": s["temperature"],
-            "rainfall": s["rainfall"],
-            "water_level": s["water_level"],
-            "traffic_pred": t_pred,
-            "traffic_confidence": t_conf,
-            "flood_pred": f_pred,
-            "flood_confidence": f_conf,
-            "horizon_min": 30,
-            "risk_score": risk_score,
-            "risk_label": risk_label,
-            "status_color": _get_status_color(risk_label),
-            "timestamp": s["timestamp"]
-        })
-
-    conn.close()
-    return telemetry
 
 @router.get("/city/status")
 def get_city_status():
-    telemetry = _build_city_telemetry_state()
-    
-    # Evaluate alerts
+    telemetry = data_ingestion_service.get_current_telemetry()
     active_alerts = alert_service.evaluate_and_generate_alerts(telemetry)
-    
-    avg_traffic = int(sum(t["vehicle_count"] for t in telemetry) / max(1, len(telemetry)))
-    avg_aqi = int(sum(t["aqi"] for t in telemetry) / max(1, len(telemetry)))
-    
-    # Overall city traffic status
-    traffic_preds = [t["traffic_pred"] for t in telemetry]
-    if "Critical" in traffic_preds:
+
+    # City-wide averages
+    avg_speed = round(sum(t.get("current_speed", 30.0) for t in telemetry) / max(1, len(telemetry)), 1)
+    avg_congestion = round(sum(t.get("congestion_percentage", 0.0) for t in telemetry) / max(1, len(telemetry)), 1)
+    avg_aqi = int(round(sum(t.get("aqi", 50) for t in telemetry) / max(1, len(telemetry))))
+    avg_rainfall = round(sum(t.get("rainfall", 0.0) for t in telemetry) / max(1, len(telemetry)), 2)
+    avg_temp = round(sum(t.get("temperature", 28.0) for t in telemetry) / max(1, len(telemetry)), 1)
+
+    # Overall traffic status
+    traffic_preds = [t.get("traffic_pred", "Low") for t in telemetry]
+    if "Critical" in traffic_preds or avg_congestion >= 60.0:
         overall_traffic = "Critical"
-    elif traffic_preds.count("High") >= 2:
+    elif traffic_preds.count("High") >= 2 or avg_congestion >= 40.0:
         overall_traffic = "High"
-    elif "High" in traffic_preds or traffic_preds.count("Moderate") >= 3:
+    elif "High" in traffic_preds or traffic_preds.count("Moderate") >= 3 or avg_congestion >= 20.0:
         overall_traffic = "Moderate"
     else:
-        overall_traffic = "Low"
+        overall_traffic = "Normal"
 
     # Overall flood risk
-    flood_preds = [t["flood_pred"] for t in telemetry]
-    if "Critical" in flood_preds:
+    flood_preds = [t.get("flood_pred", "Low") for t in telemetry]
+    if "Critical" in flood_preds or avg_rainfall >= 70.0:
         overall_flood = "Critical"
-    elif flood_preds.count("High") >= 2:
+    elif flood_preds.count("High") >= 2 or avg_rainfall >= 35.0:
         overall_flood = "High"
-    elif "High" in flood_preds or flood_preds.count("Moderate") >= 3:
+    elif "High" in flood_preds or flood_preds.count("Moderate") >= 3 or avg_rainfall >= 10.0:
         overall_flood = "Moderate"
     else:
         overall_flood = "Low"
 
     overall_risk_score, overall_risk_label = calculate_city_overall_risk(telemetry)
 
+    # Get sample AQI category
+    sample_aqi_cat = telemetry[0].get("aqi_category", "Moderate") if telemetry else "Moderate"
+    sample_weather_cond = telemetry[0].get("weather_condition", "Clear") if telemetry else "Clear"
+
     return {
         "system_status": "Online",
+        "mode": data_ingestion_service.app_mode,
+        "is_live": data_ingestion_service.app_mode == "LIVE",
+        "demo_scenario": data_ingestion_service.demo_scenario if data_ingestion_service.app_mode == "DEMO" else None,
+        "city_name": "Coimbatore",
         "last_updated": datetime.datetime.now().strftime("%I:%M:%S %p"),
-        "current_scenario": sensor_service.current_scenario,
+        
+        # Real Traffic Metrics
         "traffic_status": overall_traffic,
-        "avg_traffic": f"{avg_traffic} vehicles/min",
-        "avg_traffic_val": avg_traffic,
+        "avg_speed_display": f"{avg_speed} km/h",
+        "avg_speed_val": avg_speed,
+        "avg_congestion_display": f"{avg_congestion}%",
+        "avg_congestion_val": avg_congestion,
+        
+        # Real Air Quality
         "aqi_display": f"AQI {avg_aqi}",
         "aqi_val": avg_aqi,
-        "aqi_category": _get_aqi_category(avg_aqi),
+        "aqi_category": sample_aqi_cat,
+        
+        # Real Weather & Rainfall
+        "rainfall_display": f"{avg_rainfall} mm/h",
+        "rainfall_val": avg_rainfall,
+        "temperature_display": f"{avg_temp} °C",
+        "temperature_val": avg_temp,
+        "weather_condition": sample_weather_cond,
+        
+        # Flood & Risk
         "flood_risk": overall_flood,
         "active_alerts_count": len(active_alerts),
         "overall_risk_score": overall_risk_score,
         "overall_risk_label": overall_risk_label,
-        "overall_status_color": _get_status_color(overall_risk_label)
+        "overall_status_color": _get_status_color(overall_risk_label),
+        
+        # Sources
+        "data_sources": data_ingestion_service.get_data_sources_status()
     }
 
 @router.get("/locations")
 def get_locations():
-    return _build_city_telemetry_state()
+    return data_ingestion_service.get_current_telemetry()
 
 @router.get("/location/{location_id}")
 def get_location_detail(location_id: str):
-    telemetry = _build_city_telemetry_state()
+    telemetry = data_ingestion_service.get_current_telemetry()
     for item in telemetry:
         if item["location_id"] == location_id:
             return item
     raise HTTPException(status_code=404, detail="Location not found")
+
+@router.get("/weather")
+def get_weather():
+    return weather_service.fetch_weather()
+
+@router.get("/air-quality")
+def get_air_quality():
+    return air_quality_service.fetch_air_quality()
+
+@router.get("/traffic")
+def get_traffic():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT t.*, l.name as location_name 
+        FROM traffic_data t 
+        JOIN locations l ON t.location_id = l.id 
+        ORDER BY t.timestamp DESC 
+        LIMIT 8
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 @router.get("/sensors")
 def get_sensor_snapshot():
@@ -210,7 +160,7 @@ def get_sensor_snapshot():
 
 @router.get("/predictions")
 def get_predictions():
-    telemetry = _build_city_telemetry_state()
+    telemetry = data_ingestion_service.get_current_telemetry()
     preds = []
     for item in telemetry:
         preds.append({
@@ -218,17 +168,22 @@ def get_predictions():
             "location_name": item["location_name"],
             "current_traffic": item["traffic_level"],
             "predicted_traffic": item["traffic_pred"],
-            "traffic_confidence": item["traffic_confidence"],
+            "traffic_confidence": item.get("traffic_probability", 85.0),
+            "traffic_probability": item.get("traffic_probability", 85.0),
+            "traffic_dist": item.get("traffic_dist", {}),
             "current_flood_risk": item["flood_pred"],
             "predicted_flood_risk": item["flood_pred"],
-            "flood_confidence": item["flood_confidence"],
-            "prediction_horizon": "30 minutes"
+            "flood_confidence": item.get("flood_probability", 85.0),
+            "flood_probability": item.get("flood_probability", 85.0),
+            "flood_dist": item.get("flood_dist", {}),
+            "prediction_horizon": "30 minutes",
+            "is_demo": item.get("is_demo", False)
         })
     return preds
 
 @router.get("/alerts")
 def get_alerts():
-    telemetry = _build_city_telemetry_state()
+    telemetry = data_ingestion_service.get_current_telemetry()
     return alert_service.evaluate_and_generate_alerts(telemetry)
 
 @router.get("/analytics")
@@ -240,9 +195,10 @@ def get_analytics():
     cursor.execute("""
         SELECT 
             strftime('%H:%M:%S', timestamp) as time_label,
-            ROUND(AVG(vehicle_count)) as avg_vehicles,
+            ROUND(AVG(current_speed), 1) as avg_speed,
+            ROUND(AVG(congestion_percentage), 1) as avg_congestion,
             ROUND(AVG(aqi)) as avg_aqi,
-            ROUND(AVG(rainfall)) as avg_rainfall
+            ROUND(AVG(rainfall), 2) as avg_rainfall
         FROM sensor_data
         GROUP BY timestamp
         ORDER BY timestamp DESC
@@ -255,27 +211,39 @@ def get_analytics():
     for r in reversed(rows):
         r_dict = dict(r)
         # Derive risk score estimate for chart
-        v = r_dict["avg_vehicles"]
-        a = r_dict["avg_aqi"]
-        risk_est = min(100, max(10, int((v * 0.4) + (a * 0.4))))
+        c = r_dict["avg_congestion"] or 0
+        a = r_dict["avg_aqi"] or 50
+        r_rain = r_dict["avg_rainfall"] or 0
+        risk_est = min(100, max(10, int((c * 0.45) + (a * 0.35) + (r_rain * 0.4))))
         r_dict["risk_score"] = risk_est
         result.append(r_dict)
 
     return result
 
+@router.get("/data-sources/status")
+def get_data_sources():
+    return data_ingestion_service.get_data_sources_status()
+
 @router.post("/simulate")
 def trigger_simulation(req: Optional[SimulationRequest] = None):
-    scenario = req.scenario if req else "normal"
-    sensor_service.set_scenario(scenario)
-    new_readings = sensor_service.generate_sensor_tick(scenario)
+    """
+    Toggles between LIVE MODE and DEMO MODE.
+    If req.mode == 'LIVE', initiates live API data ingestion.
+    If req.mode == 'DEMO', executes controlled demonstration scenario (normal, rush_hour, heavy_rain).
+    """
+    mode = req.mode if req and req.mode else "DEMO"
+    scenario = req.scenario if req and req.scenario else "normal"
     
-    telemetry = _build_city_telemetry_state()
+    state = data_ingestion_service.set_mode(mode=mode, scenario=scenario)
+    telemetry = data_ingestion_service.get_current_telemetry()
     alerts = alert_service.evaluate_and_generate_alerts(telemetry)
-    
+
     return {
         "status": "success",
-        "scenario": scenario,
-        "generated_readings_count": len(new_readings),
+        "mode": state["mode"],
+        "is_live": state["is_live"],
+        "scenario": state["demo_scenario"],
+        "locations_count": len(telemetry),
         "alerts_count": len(alerts),
         "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
@@ -283,30 +251,46 @@ def trigger_simulation(req: Optional[SimulationRequest] = None):
 @router.post("/predict")
 def custom_predict(req: CustomPredictionRequest):
     now = datetime.datetime.now()
-    t_pred, t_conf = prediction_service.predict_traffic(
-        vehicle_count=req.vehicle_count,
-        traffic_speed=req.traffic_speed,
-        hour=now.hour,
-        day_of_week=now.weekday(),
-        aqi=req.aqi,
+    congestion = req.congestion_percentage
+    if congestion is None:
+        congestion = max(0.0, (req.free_flow_speed - req.current_speed) / req.free_flow_speed * 100.0)
+
+    t_pred, t_prob, t_dist = prediction_service.predict_traffic(
+        current_speed=req.current_speed,
+        free_flow_speed=req.free_flow_speed,
+        congestion_percentage=congestion,
         temperature=req.temperature,
-        rainfall=req.rainfall
+        rainfall=req.rainfall,
+        humidity=req.humidity or 60.0,
+        aqi=req.aqi,
+        hour=now.hour,
+        day_of_week=now.weekday()
     )
 
-    f_pred, f_conf = prediction_service.predict_flood(
+    f_pred, f_prob, f_dist = prediction_service.predict_flood(
         rainfall=req.rainfall,
         water_level=req.water_level,
         temperature=req.temperature,
-        prev_rainfall=req.prev_rainfall
+        humidity=req.humidity or 60.0,
+        prev_rainfall=req.prev_rainfall or 0.0
     )
 
-    risk_score, risk_label = calculate_location_risk(t_pred, f_pred, req.aqi, req.water_level, req.rainfall)
+    risk_score, risk_label = calculate_location_risk(
+        traffic_pred=t_pred,
+        flood_pred=f_pred,
+        aqi=req.aqi,
+        water_level=req.water_level,
+        rainfall=req.rainfall,
+        congestion_percentage=congestion
+    )
 
     return {
         "predicted_traffic_level": t_pred,
-        "traffic_confidence": t_conf,
+        "traffic_probability": t_prob,
+        "traffic_dist": t_dist,
         "predicted_flood_risk": f_pred,
-        "flood_confidence": f_conf,
+        "flood_probability": f_prob,
+        "flood_dist": f_dist,
         "composite_risk_score": risk_score,
         "composite_risk_label": risk_label
     }
