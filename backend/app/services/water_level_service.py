@@ -14,13 +14,20 @@ class WaterLevelService:
         # Base levels in meters for different zone types
         self.zone_baselines = {
             "river-zone": 1.4,      # Closer to river bed
+            "valankulam-lake": 1.3, # Smart city lake promenade
+            "ukkadam-junction": 1.2, # Periyakulam lake basin
+            "perur-corridor": 1.3,  # Noyyal river riparian bank
             "residential-zone": 0.8,
             "industrial-area": 0.9,
             "central-junction": 0.7,
             "railway-station": 0.7,
             "airport-road": 0.6,
             "city-hospital": 0.6,
-            "bus-terminal": 0.7
+            "bus-terminal": 0.7,
+            "tidel-park": 0.6,
+            "saravanampatti": 0.7,
+            "singanallur-junction": 0.9,
+            "ramanathapuram": 0.8
         }
         # In-memory tracking of recent levels per location
         self._current_levels: Dict[str, float] = {}

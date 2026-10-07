@@ -130,7 +130,8 @@ export default function LocationDetails({ location, onClose }) {
               {location.congestion_percentage || 0}% <span style={{ fontSize: '0.75rem', fontWeight: 400, color: '#64748B' }}>({location.traffic_level})</span>
             </div>
             <div style={{ fontSize: '0.68rem', color: '#64748B', marginTop: '0.2rem' }}>
-              Delay: {location.delay_seconds || 0}s (TomTom)
+              Delay: {location.delay_seconds != null ? `${location.delay_seconds}s` : (location.traffic_status === 'error' || location.traffic_status === 'unavailable' ? 'Unavailable' : '--')} (TomTom)
+              {location.current_travel_time != null && ` • Travel: ${location.current_travel_time}s`}
             </div>
           </div>
 

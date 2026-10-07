@@ -43,6 +43,9 @@ backend/.env
 # Database & Models
 database/*.db
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
 *.pkl
 backend/database/*.db
 backend/models/*.pkl

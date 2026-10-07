@@ -10,7 +10,7 @@ Provides per-location caching and resilient error handling.
 import time
 import datetime
 import requests
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from app import config
 
 class TrafficService:
@@ -65,7 +65,9 @@ class TrafficService:
                 "location_id": location_id,
                 "current_speed": 35.0,
                 "free_flow_speed": 45.0,
-                "delay_seconds": 0,
+                "current_travel_time": None,
+                "free_flow_travel_time": None,
+                "delay_seconds": None,
                 "congestion_percentage": 22.0,
                 "traffic_condition": "Moderate",
                 "traffic_level": "Moderate",
@@ -87,7 +89,9 @@ class TrafficService:
                 flow = raw.get("flowSegmentData", {})
 
                 current_speed = round(float(flow.get("currentSpeed", 30.0)), 1)
-                free_flow_speed = round(float(flow.get("freeFlowSpeed", max(35.0, current_speed))), 1)
+                raw_free_flow = float(flow.get("freeFlowSpeed", 42.0))
+                # For urban arterial corridors, ensure free_flow_speed reflects uncongested design speed
+                free_flow_speed = round(max(raw_free_flow, 38.0 if current_speed < 32.0 else current_speed), 1)
                 current_travel_time = int(flow.get("currentTravelTime", 0))
                 free_flow_travel_time = int(flow.get("freeFlowTravelTime", 0))
                 confidence = round(float(flow.get("confidence", 0.9)), 3)
@@ -152,7 +156,9 @@ class TrafficService:
                     "location_id": location_id,
                     "current_speed": 30.0,
                     "free_flow_speed": 40.0,
-                    "delay_seconds": 0,
+                    "current_travel_time": None,
+                    "free_flow_travel_time": None,
+                    "delay_seconds": None,
                     "congestion_percentage": 25.0,
                     "traffic_condition": "Moderate",
                     "traffic_level": "Moderate",
@@ -177,13 +183,144 @@ class TrafficService:
                 "location_id": location_id,
                 "current_speed": 30.0,
                 "free_flow_speed": 40.0,
-                "delay_seconds": 0,
+                "current_travel_time": None,
+                "free_flow_travel_time": None,
+                "delay_seconds": None,
                 "congestion_percentage": 25.0,
                 "traffic_condition": "Moderate",
                 "traffic_level": "Moderate",
                 "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "error": err_msg
             }
+
+    def search_places(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Searches TomTom Search API for places, junctions, or corridors in Coimbatore region.
+        """
+        if not self.api_key or self.api_key == "your_tomtom_key":
+            return []
+
+        url = f"https://api.tomtom.com/search/2/search/{requests.utils.quote(query)}.json"
+        params = {
+            "key": self.api_key,
+            "lat": config.LATITUDE,
+            "lon": config.LONGITUDE,
+            "radius": 35000,
+            "countrySet": "IN",
+            "limit": limit
+        }
+        try:
+            res = requests.get(url, params=params, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                results = []
+                for item in data.get("results", []):
+                    pos = item.get("position", {})
+                    lat = pos.get("lat")
+                    lon = pos.get("lon")
+                    if not lat or not lon:
+                        continue
+                    
+                    poi = item.get("poi", {})
+                    raw_name = poi.get("name") or item.get("address", {}).get("freeformAddress", query)
+                    address = item.get("address", {}).get("freeformAddress", "")
+                    categories = poi.get("categories", [])
+                    cat_str = ", ".join(categories) if categories else "Urban Sector"
+                    
+                    # Deduce zone type
+                    cat_lower = (cat_str + " " + raw_name).lower()
+                    if any(k in cat_lower for k in ["railway", "train", "station", "terminal", "bus", "airport", "transit"]):
+                        z_type = "Transit Hub"
+                        t_type = "transit"
+                    elif any(k in cat_lower for k in ["hospital", "clinic", "health", "medical"]):
+                        z_type = "Healthcare Corridor"
+                        t_type = "healthcare"
+                    elif any(k in cat_lower for k in ["tech", "tidel", "sez", "software", "park", "it"]):
+                        z_type = "Technology SEZ"
+                        t_type = "tech"
+                    elif any(k in cat_lower for k in ["industrial", "factory", "sidco", "manufacturing"]):
+                        z_type = "Industrial Cluster"
+                        t_type = "industrial"
+                    elif any(k in cat_lower for k in ["lake", "river", "water", "wetland", "dam", "canal"]):
+                        z_type = "Flood Prone Waterway"
+                        t_type = "flood_prone"
+                    elif any(k in cat_lower for k in ["residential", "colony", "nagar", "housing", "layout"]):
+                        z_type = "Residential Zone"
+                        t_type = "residential"
+                    elif any(k in cat_lower for k in ["road", "highway", "bypass", "expressway", "junction"]):
+                        z_type = "Arterial Corridor"
+                        t_type = "traffic"
+                    else:
+                        z_type = "Commercial Hub"
+                        t_type = "commercial"
+
+                    slug_id = raw_name.lower().replace(" ", "-").replace("'", "").replace(".", "")[:32]
+                    results.append({
+                        "id": slug_id,
+                        "name": raw_name,
+                        "lat": round(float(lat), 6),
+                        "lng": round(float(lon), 6),
+                        "zone_type": z_type,
+                        "type": t_type,
+                        "description": address or f"{raw_name} — {cat_str}",
+                        "categories": categories,
+                        "source": "tomtom_search_api"
+                    })
+                return results
+            return []
+        except Exception as e:
+            print(f"Error calling TomTom Search API: {e}")
+            return []
+
+    def discover_city_pois(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        Discovers landmark points of interest in Coimbatore using TomTom POI Search API.
+        """
+        if not self.api_key or self.api_key == "your_tomtom_key":
+            return []
+
+        url = "https://api.tomtom.com/search/2/poiSearch/Coimbatore.json"
+        params = {
+            "key": self.api_key,
+            "lat": config.LATITUDE,
+            "lon": config.LONGITUDE,
+            "radius": 25000,
+            "countrySet": "IN",
+            "limit": limit
+        }
+        try:
+            res = requests.get(url, params=params, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                results = []
+                for item in data.get("results", []):
+                    pos = item.get("position", {})
+                    lat = pos.get("lat")
+                    lon = pos.get("lon")
+                    if not lat or not lon:
+                        continue
+                    poi = item.get("poi", {})
+                    name = poi.get("name")
+                    if not name or len(name.strip()) < 3:
+                        continue
+                    address = item.get("address", {}).get("freeformAddress", "")
+                    categories = poi.get("categories", [])
+                    slug_id = name.lower().replace(" ", "-").replace("'", "").replace(".", "")[:32]
+                    results.append({
+                        "id": slug_id,
+                        "name": name,
+                        "lat": round(float(lat), 6),
+                        "lng": round(float(lon), 6),
+                        "zone_type": "Commercial & Civic Node",
+                        "type": "commercial",
+                        "description": address or f"{name} in Coimbatore metropolitan area",
+                        "source": "tomtom_poi_api"
+                    })
+                return results
+            return []
+        except Exception as e:
+            print(f"Error calling TomTom POI API: {e}")
+            return []
 
     def get_source_status(self) -> Dict[str, Any]:
         """Returns metadata for the Data Sources status panel."""

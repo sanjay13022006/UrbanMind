@@ -12,7 +12,7 @@ export default function Header({ statusData, onRefresh, loading, isError }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
             <Activity style={{ width: '24px', height: '24px', color: '#2563EB' }} />
             <h1 style={{ fontSize: '1.45rem', fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em', margin: 0 }}>
-              UrbanTwin AI
+              UrbanMind
             </h1>
             <span
               style={{

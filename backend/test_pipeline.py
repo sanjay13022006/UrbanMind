@@ -1,5 +1,5 @@
 """
-Automated Test Suite for UrbanTwin AI Data Pipeline
+Automated Test Suite for UrbanMind Data Pipeline
 ----------------------------------------------------
 Tests:
 1. OpenWeather API service & normalization
@@ -32,7 +32,7 @@ from app.services.risk_service import calculate_location_risk, calculate_city_ov
 from app.services.alert_service import alert_service
 from app.services.data_ingestion_service import data_ingestion_service
 
-class TestUrbanTwinPipeline(unittest.TestCase):
+class TestUrbanMindPipeline(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         print("\n--- Initializing Test Environment & Database ---")
@@ -119,6 +119,8 @@ class TestUrbanTwinPipeline(unittest.TestCase):
 
     def test_06_ml_predictions(self):
         print("\n[Test 6] Testing Random Forest ML Inferences & Probabilities...")
+        
+        # Test 1: Rush hour / high congestion condition
         t_pred, t_prob, t_dist = prediction_service.predict_traffic(
             current_speed=18.0,
             free_flow_speed=40.0,
@@ -134,7 +136,24 @@ class TestUrbanTwinPipeline(unittest.TestCase):
         self.assertGreaterEqual(t_prob, 0.0)
         self.assertLessEqual(t_prob, 100.0)
         self.assertIsInstance(t_dist, dict)
+        self.assertAlmostEqual(sum(t_dist.values()), 100.0, delta=1.5)
 
+        # Test 2: Borderline / transitional condition (should not be artificially 100%)
+        t_pred2, t_prob2, t_dist2 = prediction_service.predict_traffic(
+            current_speed=28.0,
+            free_flow_speed=42.0,
+            congestion_percentage=33.3,
+            temperature=29.0,
+            rainfall=0.0,
+            humidity=55.0,
+            aqi=65,
+            hour=14,
+            day_of_week=1
+        )
+        self.assertIn(t_pred2, ["Low", "Moderate", "High"])
+        self.assertLess(t_prob2, 95.0, "Transitional condition probability should reflect real uncertainty, not trivial 100%")
+
+        # Test 3: Extreme flood risk
         f_pred, f_prob, f_dist = prediction_service.predict_flood(
             rainfall=75.0,
             water_level=2.9,
@@ -142,7 +161,20 @@ class TestUrbanTwinPipeline(unittest.TestCase):
             humidity=92.0
         )
         self.assertIn(f_pred, ["High", "Critical"])
-        print(f"  -> ML OK: Traffic={t_pred} ({t_prob}%), Flood={f_pred} ({f_prob}%)")
+        self.assertGreaterEqual(f_prob, 0.0)
+        self.assertLessEqual(f_prob, 100.0)
+
+        # Test 4: Dry normal condition flood risk
+        f_pred2, f_prob2, f_dist2 = prediction_service.predict_flood(
+            rainfall=0.0,
+            water_level=0.6,
+            temperature=30.0,
+            humidity=50.0
+        )
+        self.assertEqual(f_pred2, "Low")
+        self.assertAlmostEqual(sum(f_dist2.values()), 100.0, delta=1.5)
+
+        print(f"  -> ML OK: Traffic={t_pred} ({t_prob}%), Borderline Traffic={t_pred2} ({t_prob2}%), Flood={f_pred} ({f_prob}%), Dry Flood={f_pred2} ({f_prob2}%)")
 
     def test_07_risk_and_alerts(self):
         print("\n[Test 7] Testing Risk Engine & Alert Generation...")
@@ -172,10 +204,10 @@ class TestUrbanTwinPipeline(unittest.TestCase):
     def test_08_data_ingestion_pipeline(self):
         print("\n[Test 8] Testing Complete Data Ingestion Service...")
         telemetry = data_ingestion_service.ingest_data(force_refresh=False)
-        self.assertEqual(len(telemetry), 8)
+        self.assertGreaterEqual(len(telemetry), 8)
         self.assertEqual(telemetry[0]["traffic_source"], "TomTom Traffic API")
-        self.assertEqual(telemetry[0]["weather_source"], "OpenWeather (City-wide)")
-        self.assertEqual(telemetry[0]["aqi_source"], "OpenAQ (Coimbatore Station)")
+        self.assertIn("OpenWeather", telemetry[0]["weather_source"])
+        self.assertIn("OpenAQ", telemetry[0]["aqi_source"])
         self.assertEqual(telemetry[0]["water_level_source"], "Hydrological Basin Simulation")
 
         # Test DEMO MODE toggle
@@ -210,7 +242,11 @@ class TestUrbanTwinPipeline(unittest.TestCase):
 
         res_locations = client.get("/api/locations")
         self.assertEqual(res_locations.status_code, 200)
-        self.assertEqual(len(res_locations.json()), 8)
+        self.assertGreaterEqual(len(res_locations.json()), 8)
+
+        res_search = client.get("/api/locations/search?query=Peelamedu")
+        self.assertEqual(res_search.status_code, 200)
+        self.assertIsInstance(res_search.json(), list)
 
         res_sources = client.get("/api/data-sources/status")
         self.assertEqual(res_sources.status_code, 200)

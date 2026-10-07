@@ -1,4 +1,4 @@
-# UrbanTwin AI — Smart City Digital Twin
+# UrbanMind — Smart City Digital Twin
 
 **Subtitle:** API-Integrated Smart City Digital Twin for Multi-Modal Prediction & Proactive Decision Support  
 **Project Category:** Final-Year Engineering Project MVP Prototype  
@@ -7,7 +7,7 @@
 ---
 
 > ### 📢 Important Architecture Notice & Project Claim
-> **"UrbanTwin AI integrates real external weather, air-quality, and traffic data, while water-level data is currently simulated for the MVP."**  
+> **"UrbanMind integrates real external weather, air-quality, and traffic data, while water-level data is currently simulated for the MVP."**  
 > Synthetic values for weather, rainfall, temperature, AQI, and traffic flow have been completely replaced with genuine external REST APIs. Water-level telemetry is modelled via an isolated physical basin simulator responding dynamically to real measured precipitation until authorized river radar gauges are integrated.
 
 ---
@@ -16,13 +16,13 @@
 
 Modern urban centers face interdependent metropolitan challenges: sudden flash flooding from convective rainfall, localized traffic bottlenecks, and deteriorating air quality. Traditional municipal dashboards present isolated historical telemetry without evaluating multi-modal risk correlations or predicting near-future critical horizons.
 
-**UrbanTwin AI** addresses this challenge by establishing an operational Smart City Digital Twin. The system continuously ingests live external environmental, meteorological, and traffic data across 8 strategic urban corridors in Coimbatore. Telemetry feeds into trained **Scikit-Learn Random Forest Machine Learning models** to forecast 30-minute traffic congestion and flood vulnerability horizons with probability distributions. An integrated dynamic risk scoring engine and automated threshold alert pipeline empower city administrators to take proactive mitigation measures before crisis points occur.
+**UrbanMind** addresses this challenge by establishing an operational Smart City Digital Twin. The system continuously ingests live external environmental, meteorological, and traffic data across 8 strategic urban corridors in Coimbatore. Telemetry feeds into trained **Scikit-Learn Random Forest Machine Learning models** to forecast 30-minute traffic congestion and flood vulnerability horizons with probability distributions. An integrated dynamic risk scoring engine and automated threshold alert pipeline empower city administrators to take proactive mitigation measures before crisis points occur.
 
 ---
 
 ## 2. Real External Data Sources
 
-UrbanTwin AI connects directly to three industry-standard external REST API providers:
+UrbanMind connects directly to three industry-standard external REST API providers:
 
 ### 1. OpenWeather API
 - **Endpoint:** Current Weather Data API (`/data/2.5/weather`)

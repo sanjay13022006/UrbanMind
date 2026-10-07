@@ -28,7 +28,7 @@ export default function FutureScope() {
       >
         <Info style={{ width: '18px', height: '18px', color: '#2563EB', flexShrink: 0 }} />
         <span style={{ fontSize: '0.8rem', color: '#1E40AF', fontWeight: 500 }}>
-          <strong>Architecture Notice:</strong> UrbanTwin AI integrates real external weather (OpenWeather), air-quality (OpenAQ), and traffic data (TomTom), while water-level data is currently simulated for the MVP.
+          <strong>Architecture Notice:</strong> UrbanMind integrates real external weather (OpenWeather), air-quality (OpenAQ), and traffic data (TomTom), while water-level data is currently simulated for the MVP.
         </span>
       </div>
 

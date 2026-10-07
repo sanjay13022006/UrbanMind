@@ -112,6 +112,21 @@ def get_city_status():
 def get_locations():
     return data_ingestion_service.get_current_telemetry()
 
+@router.get("/locations/search")
+def search_locations_api(query: str = Query(..., min_length=2)):
+    """Searches TomTom Search API for places, junctions, or corridors in Coimbatore."""
+    return traffic_service.search_places(query=query)
+
+@router.post("/locations/sync-from-api")
+def sync_locations_from_tomtom():
+    """Discovers points of interest in Coimbatore from TomTom API and syncs into digital twin."""
+    return data_ingestion_service.sync_locations_from_api()
+
+@router.post("/locations/add-custom")
+def add_custom_location_endpoint(payload: Dict[str, Any]):
+    """Adds a custom or searched location into the digital twin network."""
+    return data_ingestion_service.add_custom_location(payload)
+
 @router.get("/location/{location_id}")
 def get_location_detail(location_id: str):
     telemetry = data_ingestion_service.get_current_telemetry()
@@ -137,7 +152,7 @@ def get_traffic():
         FROM traffic_data t 
         JOIN locations l ON t.location_id = l.id 
         ORDER BY t.timestamp DESC 
-        LIMIT 8
+        LIMIT 50
     """)
     rows = cursor.fetchall()
     conn.close()
@@ -152,7 +167,7 @@ def get_sensor_snapshot():
         FROM sensor_data s 
         JOIN locations l ON s.location_id = l.id 
         ORDER BY s.timestamp DESC 
-        LIMIT 8
+        LIMIT 50
     """)
     rows = cursor.fetchall()
     conn.close()

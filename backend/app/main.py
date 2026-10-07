@@ -10,7 +10,7 @@ from app import config
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("=" * 60)
-    print("Starting UrbanTwin AI Smart City Digital Twin Backend...")
+    print("Starting UrbanMind Smart City Digital Twin Backend...")
     print(f"Configured City: {config.CITY_NAME} ({config.LATITUDE}, {config.LONGITUDE})")
     init_db()
     
@@ -23,13 +23,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Warning during initial data ingestion: {e}")
 
-    print("UrbanTwin AI Database & Real API Telemetry Online.")
+    print("UrbanMind Database & Real API Telemetry Online.")
     print("=" * 60)
     yield
-    print("Shutting down UrbanTwin AI Backend Server.")
+    print("Shutting down UrbanMind Backend Server.")
 
 app = FastAPI(
-    title="UrbanTwin AI Backend API",
+    title="UrbanMind Backend API",
     description="Real API-Integrated Smart City Digital Twin REST API Service",
     version="2.0.0",
     lifespan=lifespan
@@ -49,7 +49,7 @@ app.include_router(api_router, prefix="/api")
 @app.get("/")
 def root():
     return {
-        "title": "UrbanTwin AI API",
+        "title": "UrbanMind API",
         "city": config.CITY_NAME,
         "mode": data_ingestion_service.app_mode,
         "status": "Online",

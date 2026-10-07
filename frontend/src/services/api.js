@@ -4,7 +4,7 @@ const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: 30000,
 });
 
 export const getCityStatus = async () => {
@@ -49,6 +49,21 @@ export const triggerSimulation = async (mode = 'DEMO', scenario = 'normal') => {
 
 export const switchToLiveMode = async () => {
   const res = await api.post('/simulate', { mode: 'LIVE', scenario: 'normal' });
+  return res.data;
+};
+
+export const searchLocationsFromApi = async (query) => {
+  const res = await api.get('/locations/search', { params: { query } });
+  return res.data;
+};
+
+export const syncLocationsFromTomTom = async () => {
+  const res = await api.post('/locations/sync-from-api');
+  return res.data;
+};
+
+export const addCustomLocation = async (locationData) => {
+  const res = await api.post('/locations/add-custom', locationData);
   return res.data;
 };
 
